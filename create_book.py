@@ -5,6 +5,8 @@ import codecs
 import pickle
 import time
 import os
+import datetime
+import language_check
 
 
 def create_lookup_tables(text):
@@ -74,18 +76,23 @@ def pick_word(probabilities, int_to_vocab):
         list(int_to_vocab.values()), 1, p=probabilities)[0]
 
 
-def process_and_save():
-    num_epochs = 10000
-    batch_size = 256
+def process_and_save(prime_words):
+    # num_epochs = 2000
+    batch_size = 250
     rnn_size = 256
     num_layers = 3
-    keep_prob = 0.79
-    embed_dim = 256
-    seq_length = 30
+    keep_prob = 0.75
+    embed_dim = 200
+    seq_length = 50
     learning_rate = 0.001
+    gen_length = 3000
+
+    version_dir = './generated-book-v10'
+
     save_dir = os.path.abspath('save')
 
     book_files = sorted(glob.glob("data/*.txt"))
+
     print('found {} books'.format(len(book_files)))
     corpus_raw = u""
     for file in book_files:
@@ -143,7 +150,7 @@ def process_and_save():
                                                            activation_fn=None)
 
         # Calculate the probability of generating each word
-        probs = tensorflow.nn.softmax(logits, name='probs')
+        _ = tensorflow.nn.softmax(logits, name='probs')
 
         # Define loss function
         cost = tensorflow.contrib.seq2seq.sequence_loss(
@@ -163,13 +170,15 @@ def process_and_save():
 
     pickle.dump((seq_length, save_dir), open(save_dir+'/'+'params.p', 'wb'))
     batches = get_batches(corpus_int, batch_size, seq_length)
-    num_batches = len(batches)
     start_time = time.time()
-    train_loss = 0
+    train_loss = 1
+    epoch = 0
+    batch_index = 0
     with tensorflow.Session(graph=train_graph) as sess:
         sess.run(tensorflow.global_variables_initializer())
 
-        for epoch in range(num_epochs):
+        while train_loss > 0.1:
+            epoch += 1
             state = sess.run(initial_state, {input_text: batches[0][0]})
 
             for batch_index, (x, y) in enumerate(batches):
@@ -185,18 +194,15 @@ def process_and_save():
             time_elapsed = time.time() - start_time
             print(
                 'Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}   '
-                'time_elapsed = {:.3f}   time_remaining = {:.0f}'.format(
+                'time_elapsed = {:.3f}'.format(
                     epoch + 1,
                     batch_index + 1,
                     len(batches),
                     train_loss,
-                    time_elapsed,
-                    ((num_batches * num_epochs) / ((epoch + 1) * (
-                                batch_index + 1))) * time_elapsed -
                     time_elapsed))
 
-            # save model every 10 epochs
-            if epoch % 10 == 0:
+            # save model every 5 epochs
+            if epoch % 250 == 0:
                 saver = tensorflow.train.Saver()
                 saver.save(sess, save_dir)
                 print('Model Trained and Saved')
@@ -205,9 +211,6 @@ def process_and_save():
         open('preprocess.p', mode='rb'))
     seq_length, save_dir = pickle.load(open(
         save_dir+'/'+'params.p', mode='rb'))
-
-    gen_length = 1000
-    prime_words = 'traveller'
 
     loaded_graph = tensorflow.Graph()
 
@@ -225,7 +228,7 @@ def process_and_save():
         # Sentences generation setup
         gen_sentences = prime_words.split()
         prev_state = sess.run(initial_state, {
-            input_text: numpy.array([[1 for word in gen_sentences]])})
+            input_text: numpy.array([[1 for _ in gen_sentences]])})
 
         # Generate sentences
         for n in range(gen_length):
@@ -258,40 +261,32 @@ def process_and_save():
     chapter_text = chapter_text.replace('( ', '(')
     chapter_text = chapter_text.replace(' ”', '”')
 
-    # capitalize_words = ['lannister', 'stark', 'lord', 'ser', 'tyrion', 'jon',
-    #                     'john snow', 'daenerys', 'targaryen', 'cersei',
-    #                     'jaime', 'arya', 'sansa', 'bran', 'rikkon', 'joffrey',
-    #                     'khal', 'drogo', 'gregor', 'clegane', 'kings landing',
-    #                     'winterfell', 'the mountain', 'the hound', 'ramsay',
-    #                     'bolton', 'melisandre', 'shae', 'tyrell',
-    #                     'margaery', 'sandor', 'hodor', 'ygritte', 'brienne',
-    #                     'tarth', 'petyr', 'baelish', 'eddard', 'greyjoy',
-    #                     'theon', 'gendry', 'baratheon', 'baraTheon',
-    #                     'varys', 'stannis', 'bronn', 'jorah', 'mormont',
-    #                     'martell', 'oberyn', 'catelyn', 'robb', 'loras',
-    #                     'missandei', 'tommen', 'robert', 'lady', 'donella',
-    #                     'redwyne'
-    #                     'myrcella', 'samwell', 'tarly', 'grey worm', 'podrick',
-    #                     'osha', 'davos', 'seaworth', 'jared', 'jeyne poole',
-    #                     'rickard', 'yoren', 'meryn', 'trant', 'king', 'queen',
-    #                     'aemon']
-    #
-    # for word in capitalize_words:
-    #     chapter_text = chapter_text.replace(word, word.lower().title())
-
-    version_dir = './generated-book-v1'
     if not os.path.exists(version_dir):
         os.makedirs(version_dir)
 
     num_chapters = len([name for name in os.listdir(version_dir) if
                         os.path.isfile(os.path.join(version_dir, name))])
+    # next_chapter = version_dir + '/chapter-' + str(num_chapters + 1) + \
+    #     '-not-grammar-corrected.md'
+    # with open(next_chapter, "w", encoding='utf-8') as text_file:
+    #     text_file.write(chapter_text)
+
+    tool = language_check.LanguageTool('en-US')
+    matches = tool.check(chapter_text)
+    chapter_text = language_check.correct(chapter_text, matches)
+
     next_chapter = version_dir + '/chapter-' + str(num_chapters + 1) + '.md'
-    with open(next_chapter, "w") as text_file:
+    with open(next_chapter, "w", encoding='utf-8') as text_file:
         text_file.write(chapter_text)
 
 
 def run():
-    process_and_save()
+    start_time = datetime.datetime.now()
+    print('Start time: {}'.format(start_time))
+    keywords_to_use = ['peace', 'war', 'reason', 'politics']
+    # number of chapters written equals length of keywords
+    for keyword in keywords_to_use:
+        process_and_save(keyword)
 
 
 if __name__ == '__main__':
