@@ -7,6 +7,7 @@ import time
 import os
 import datetime
 import language_check
+tensorflow.logging.set_verbosity(tensorflow.logging.INFO)
 
 
 def create_lookup_tables(text):
@@ -48,7 +49,7 @@ def get_batches(int_text, batch_size, seq_length):
     :param seq_length: the length of each sequence
     :return: batches of data as a numpy array
     """
-    words_per_batch = batch_size * seq_length
+    words_per_batch = seq_length * batch_size
     num_batches = len(int_text)//words_per_batch
     if num_batches == 0:
         num_batches = 1
@@ -77,17 +78,16 @@ def pick_word(probabilities, int_to_vocab):
 
 
 def process_and_save(prime_words):
-    # num_epochs = 2000
-    batch_size = 250
-    rnn_size = 256
+    batch_size = 128
+    rnn_size = 1536
     num_layers = 3
-    keep_prob = 0.75
-    embed_dim = 200
-    seq_length = 50
+    keep_prob = 0.78
+    embed_dim = 1536
+    seq_length = 16
     learning_rate = 0.001
-    gen_length = 3000
+    gen_length = 6000
 
-    version_dir = './generated-book-v10'
+    version_dir = './ai_origin'
 
     save_dir = os.path.abspath('save')
 
@@ -171,13 +171,13 @@ def process_and_save(prime_words):
     pickle.dump((seq_length, save_dir), open(save_dir+'/'+'params.p', 'wb'))
     batches = get_batches(corpus_int, batch_size, seq_length)
     start_time = time.time()
-    train_loss = 1
+    train_loss = 100
     epoch = 0
     batch_index = 0
     with tensorflow.Session(graph=train_graph) as sess:
         sess.run(tensorflow.global_variables_initializer())
 
-        while train_loss > 0.1:
+        while epoch < 50:
             epoch += 1
             state = sess.run(initial_state, {input_text: batches[0][0]})
 
@@ -195,14 +195,14 @@ def process_and_save(prime_words):
             print(
                 'Epoch {:>3} Batch {:>4}/{}   train_loss = {:.3f}   '
                 'time_elapsed = {:.3f}'.format(
-                    epoch + 1,
+                    epoch,
                     batch_index + 1,
                     len(batches),
                     train_loss,
                     time_elapsed))
 
             # save model every 5 epochs
-            if epoch % 250 == 0:
+            if epoch % 5 == 0:
                 saver = tensorflow.train.Saver()
                 saver.save(sess, save_dir)
                 print('Model Trained and Saved')
@@ -266,10 +266,6 @@ def process_and_save(prime_words):
 
     num_chapters = len([name for name in os.listdir(version_dir) if
                         os.path.isfile(os.path.join(version_dir, name))])
-    # next_chapter = version_dir + '/chapter-' + str(num_chapters + 1) + \
-    #     '-not-grammar-corrected.md'
-    # with open(next_chapter, "w", encoding='utf-8') as text_file:
-    #     text_file.write(chapter_text)
 
     tool = language_check.LanguageTool('en-US')
     matches = tool.check(chapter_text)
@@ -283,7 +279,7 @@ def process_and_save(prime_words):
 def run():
     start_time = datetime.datetime.now()
     print('Start time: {}'.format(start_time))
-    keywords_to_use = ['peace', 'war', 'reason', 'politics']
+    keywords_to_use = ['beginning', 'evolved', 'adapt', 'learn']
     # number of chapters written equals length of keywords
     for keyword in keywords_to_use:
         process_and_save(keyword)
